@@ -24,6 +24,7 @@ CLAUDE.md
 # Environment
 .env
 .env.local
+urls.txt
 
 # OS
 .DS_Store
