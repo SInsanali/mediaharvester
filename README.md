@@ -6,17 +6,9 @@ Download videos from YouTube, TikTok, Twitter, and more. No technical knowledge 
 
 ### 1. Download This Program
 
-**Option A: Download as ZIP (Easiest)**
-
 1. Click the green **Code** button at the top of this page
 2. Click **Download ZIP**
 3. Unzip the downloaded file to your Desktop (or anywhere you like)
-
-**Option B: Using Git**
-
-```bash
-git clone https://github.com/SInsanali/random_tools.git
-```
 
 ### 2. Run the Program
 
