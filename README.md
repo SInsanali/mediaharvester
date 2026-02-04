@@ -13,7 +13,7 @@ Download videos from YouTube, TikTok, Twitter, and more. No technical knowledge 
 ### 2. Run the Program
 
 - **Mac**: Double-click `Media Harvester.command`
-- **Windows**: Double-click `Media Harvester.bat`
+- **Windows**: Double-click `Run Media Harvester (Windows).bat`
 
 The first time you run it, the program will create a file called `urls.txt`.
 
@@ -63,11 +63,14 @@ Your files will be saved in the `video/` or `audio/` folder.
 | "Python not found" | Install Python from https://www.python.org/downloads/ |
 | Videos won't download | Try option **1** first to check if the URLs are valid |
 | Download fails | Make sure you have a stable internet connection |
+| Some videos skip/fail | Some videos may be age-restricted, region-locked, or require FFmpeg. Install FFmpeg via option **4** |
+| Low video quality | Install FFmpeg (option **4**) to enable best quality video+audio merging |
 
 ## Requirements
 
 - Python 3.8 or later (usually pre-installed on Mac/Linux)
 - Everything else installs automatically
+- **FFmpeg** (optional but recommended): Enables MP3 conversion and best video quality. Install via menu option **4**
 
 ## Supported Sites
 

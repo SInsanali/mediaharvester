@@ -412,8 +412,9 @@ def download_videos(url_dict: dict[str, list[str]], output_dir: Path) -> tuple[i
 
             ydl_opts = {
                 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                'outtmpl': str(folder_dir / '%(title)s.%(ext)s'),
+                'outtmpl': str(folder_dir / '%(title).100s.%(ext)s'),
                 'windowsfilenames': True,
+                'restrictfilenames': True,
                 'quiet': True,
                 'no_warnings': True,
                 'noprogress': True,
@@ -421,14 +422,32 @@ def download_videos(url_dict: dict[str, list[str]], output_dir: Path) -> tuple[i
                 'nocheckcertificate': True,
                 'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
                 'progress_hooks': [progress_hook],
+                'ignoreerrors': False,
+                'retries': 3,
             }
 
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
                     success_count += 1
+            except yt_dlp.utils.DownloadError as e:
+                error_msg = str(e)
+                print(f"        {Colors.RED}Download failed:{Colors.RESET}")
+                # Show helpful context based on error type
+                if "ffmpeg" in error_msg.lower() or "merge" in error_msg.lower():
+                    print(f"        {Colors.YELLOW}FFmpeg is required to merge video+audio.{Colors.RESET}")
+                    print(f"        {Colors.YELLOW}Install it via menu option 4.{Colors.RESET}")
+                elif "private" in error_msg.lower():
+                    print(f"        {Colors.YELLOW}This video is private.{Colors.RESET}")
+                elif "age" in error_msg.lower() or "sign in" in error_msg.lower():
+                    print(f"        {Colors.YELLOW}This video requires age verification/login.{Colors.RESET}")
+                elif "available" in error_msg.lower():
+                    print(f"        {Colors.YELLOW}Video unavailable (deleted or region-locked).{Colors.RESET}")
+                else:
+                    print(f"        {Colors.DIM}{error_msg[:200]}{Colors.RESET}")
+                fail_count += 1
             except Exception as e:
-                print(f"        {Colors.RED}Failed: {e}{Colors.RESET}")
+                print(f"        {Colors.RED}Error: {type(e).__name__}: {e}{Colors.RESET}")
                 fail_count += 1
 
     print()
@@ -472,8 +491,9 @@ def download_audio(url_dict: dict[str, list[str]], output_dir: Path) -> tuple[in
 
             ydl_opts = {
                 'format': 'bestaudio/best',
-                'outtmpl': str(folder_dir / '%(title)s.%(ext)s'),
+                'outtmpl': str(folder_dir / '%(title).100s.%(ext)s'),
                 'windowsfilenames': True,
+                'restrictfilenames': True,
                 'quiet': True,
                 'no_warnings': True,
                 'noprogress': True,
@@ -486,6 +506,8 @@ def download_audio(url_dict: dict[str, list[str]], output_dir: Path) -> tuple[in
                     'preferredcodec': 'mp3',
                     'preferredquality': '192',
                 }],
+                'ignoreerrors': False,
+                'retries': 3,
             }
 
             if ffmpeg_location:
@@ -495,8 +517,23 @@ def download_audio(url_dict: dict[str, list[str]], output_dir: Path) -> tuple[in
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
                     success_count += 1
+            except yt_dlp.utils.DownloadError as e:
+                error_msg = str(e)
+                print(f"        {Colors.RED}Download failed:{Colors.RESET}")
+                if "ffmpeg" in error_msg.lower():
+                    print(f"        {Colors.YELLOW}FFmpeg is required for MP3 conversion.{Colors.RESET}")
+                    print(f"        {Colors.YELLOW}Install it via menu option 4.{Colors.RESET}")
+                elif "private" in error_msg.lower():
+                    print(f"        {Colors.YELLOW}This video is private.{Colors.RESET}")
+                elif "age" in error_msg.lower() or "sign in" in error_msg.lower():
+                    print(f"        {Colors.YELLOW}This video requires age verification/login.{Colors.RESET}")
+                elif "available" in error_msg.lower():
+                    print(f"        {Colors.YELLOW}Video unavailable (deleted or region-locked).{Colors.RESET}")
+                else:
+                    print(f"        {Colors.DIM}{error_msg[:200]}{Colors.RESET}")
+                fail_count += 1
             except Exception as e:
-                print(f"        Failed: {e}")
+                print(f"        {Colors.RED}Error: {type(e).__name__}: {e}{Colors.RESET}")
                 fail_count += 1
 
     print()
