@@ -72,17 +72,43 @@ def install_dependencies() -> bool:
         return True
     except ImportError:
         print("First run - installing dependencies...")
-        try:
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "--user", "-q", "yt-dlp"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            print("Done!\n")
-            return True
-        except subprocess.CalledProcessError:
-            print("Error: Failed to install. Try: pip install yt-dlp")
-            return False
+
+        # Try different install methods (order matters)
+        install_commands = [
+            # Try pipx first (cleanest for macOS)
+            (["pipx", "install", "yt-dlp"], "pipx"),
+            # Try pip with --user and --break-system-packages (for PEP 668 systems)
+            ([sys.executable, "-m", "pip", "install", "--user", "--break-system-packages", "-q", "yt-dlp"], "pip"),
+            # Try without --break-system-packages (older systems)
+            ([sys.executable, "-m", "pip", "install", "--user", "-q", "yt-dlp"], "pip"),
+            # Try pip3 directly
+            (["pip3", "install", "--user", "--break-system-packages", "-q", "yt-dlp"], "pip3"),
+            (["pip3", "install", "--user", "-q", "yt-dlp"], "pip3"),
+        ]
+
+        for cmd, method in install_commands:
+            try:
+                subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"Done! (via {method})\n")
+                return True
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                continue
+
+        # All methods failed - show helpful error
+        print(f"{Colors.RED}Error: Failed to auto-install yt-dlp.{Colors.RESET}")
+        print(f"\n{Colors.YELLOW}Please install manually using one of these methods:{Colors.RESET}")
+        if platform.system() == "Darwin":
+            print("\n  Option 1 (recommended for Mac):")
+            print("    brew install yt-dlp")
+            print("\n  Option 2:")
+            print("    pipx install yt-dlp")
+            print("\n  Option 3:")
+            print("    pip3 install --user --break-system-packages yt-dlp")
+        elif platform.system() == "Windows":
+            print("    pip install yt-dlp")
+        else:
+            print("    pip3 install --user yt-dlp")
+        return False
 
 
 def get_script_dir() -> Path:
@@ -412,7 +438,7 @@ def download_videos(url_dict: dict[str, list[str]], output_dir: Path) -> tuple[i
 
             ydl_opts = {
                 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                'outtmpl': str(folder_dir / '%(title).100s.%(ext)s'),
+                'outtmpl': str(folder_dir / f'{count} - %(title).80s [%(id)s].%(ext)s'),
                 'windowsfilenames': True,
                 'restrictfilenames': True,
                 'quiet': True,
@@ -491,7 +517,7 @@ def download_audio(url_dict: dict[str, list[str]], output_dir: Path) -> tuple[in
 
             ydl_opts = {
                 'format': 'bestaudio/best',
-                'outtmpl': str(folder_dir / '%(title).100s.%(ext)s'),
+                'outtmpl': str(folder_dir / f'{count} - %(title).80s [%(id)s].%(ext)s'),
                 'windowsfilenames': True,
                 'restrictfilenames': True,
                 'quiet': True,
