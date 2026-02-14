@@ -66,12 +66,15 @@ URL_PATTERN = re.compile(
 
 
 def install_dependencies() -> bool:
-    """Install required packages if missing."""
+    """Install required packages if missing (yt-dlp and FFmpeg)."""
+    # Install yt-dlp
+    yt_dlp_ok = False
     try:
         import yt_dlp  # noqa: F401
-        return True
+        yt_dlp_ok = True
     except ImportError:
         print("First run - installing dependencies...")
+        print("  Installing yt-dlp...")
 
         # Try different install methods (order matters)
         install_commands = [
@@ -89,26 +92,35 @@ def install_dependencies() -> bool:
         for cmd, method in install_commands:
             try:
                 subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                print(f"Done! (via {method})\n")
-                return True
+                print(f"  yt-dlp installed (via {method})")
+                yt_dlp_ok = True
+                break
             except (subprocess.CalledProcessError, FileNotFoundError):
                 continue
 
-        # All methods failed - show helpful error
-        print(f"{Colors.RED}Error: Failed to auto-install yt-dlp.{Colors.RESET}")
-        print(f"\n{Colors.YELLOW}Please install manually using one of these methods:{Colors.RESET}")
-        if platform.system() == "Darwin":
-            print("\n  Option 1 (recommended for Mac):")
-            print("    brew install yt-dlp")
-            print("\n  Option 2:")
-            print("    pipx install yt-dlp")
-            print("\n  Option 3:")
-            print("    pip3 install --user --break-system-packages yt-dlp")
-        elif platform.system() == "Windows":
-            print("    pip install yt-dlp")
-        else:
-            print("    pip3 install --user yt-dlp")
-        return False
+        if not yt_dlp_ok:
+            print(f"{Colors.RED}Error: Failed to auto-install yt-dlp.{Colors.RESET}")
+            print(f"\n{Colors.YELLOW}Please install manually using one of these methods:{Colors.RESET}")
+            if platform.system() == "Darwin":
+                print("\n  Option 1 (recommended for Mac):")
+                print("    brew install yt-dlp")
+                print("\n  Option 2:")
+                print("    pipx install yt-dlp")
+                print("\n  Option 3:")
+                print("    pip3 install --user --break-system-packages yt-dlp")
+            elif platform.system() == "Windows":
+                print("    pip install yt-dlp")
+            else:
+                print("    pip3 install --user yt-dlp")
+            return False
+
+    # Install FFmpeg
+    if not check_ffmpeg():
+        print("  Installing FFmpeg...")
+        if not install_ffmpeg():
+            return False
+
+    return True
 
 
 def get_script_dir() -> Path:
@@ -417,6 +429,10 @@ def download_videos(url_dict: dict[str, list[str]], output_dir: Path) -> tuple[i
 
     print(f"\n{Colors.BOLD}Downloading {total} video(s)...{Colors.RESET}\n")
 
+    # Get ffmpeg path for merging video+audio streams
+    ffmpeg_path = get_ffmpeg_path()
+    ffmpeg_location = str(Path(ffmpeg_path).parent) if ffmpeg_path else None
+
     count = 0
     for folder, urls in url_dict.items():
         folder_dir = output_dir / folder if folder else output_dir
@@ -437,7 +453,8 @@ def download_videos(url_dict: dict[str, list[str]], output_dir: Path) -> tuple[i
             print(f"{Colors.DIM}[{count}/{total}]{Colors.RESET} {Colors.CYAN}[{folder_display}]{Colors.RESET} {title}")
 
             ydl_opts = {
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'format': 'bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/best[vcodec^=avc1]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'merge_output_format': 'mp4',
                 'outtmpl': str(folder_dir / f'{count} - %(title).80s [%(id)s].%(ext)s'),
                 'windowsfilenames': True,
                 'restrictfilenames': True,
@@ -448,9 +465,15 @@ def download_videos(url_dict: dict[str, list[str]], output_dir: Path) -> tuple[i
                 'nocheckcertificate': True,
                 'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
                 'progress_hooks': [progress_hook],
+                'postprocessor_args': {
+                    'merger': ['-c:v', 'libx264', '-preset', 'medium', '-crf', '23', '-c:a', 'aac', '-movflags', '+faststart'],
+                },
                 'ignoreerrors': False,
                 'retries': 3,
             }
+
+            if ffmpeg_location:
+                ydl_opts['ffmpeg_location'] = ffmpeg_location
 
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -576,7 +599,7 @@ def wait_for_enter() -> None:
     input(f"\n{Colors.DIM}Press Enter to continue...{Colors.RESET}")
 
 
-def get_menu_choice(ffmpeg_available: bool, url_count: int, folder_count: int) -> str:
+def get_menu_choice(url_count: int, folder_count: int) -> str:
     """Get validated menu choice from user."""
     while True:
         clear_screen()
@@ -586,24 +609,20 @@ def get_menu_choice(ffmpeg_available: bool, url_count: int, folder_count: int) -
         else:
             print(f"{Colors.DIM}Found {Colors.YELLOW}{url_count}{Colors.RESET}{Colors.DIM} URL(s) in urls.txt{Colors.RESET}\n")
 
-        ffmpeg_color = Colors.GREEN if ffmpeg_available else Colors.RED
-        ffmpeg_status = "installed" if ffmpeg_available else "not installed"
-
         print(f"{Colors.BOLD}What would you like to do?{Colors.RESET}")
         print(f"  {Colors.CYAN}1.{Colors.RESET} Validate URLs")
         print(f"  {Colors.CYAN}2.{Colors.RESET} Download all videos")
-        print(f"  {Colors.CYAN}3.{Colors.RESET} Download as MP3 {Colors.DIM}[FFmpeg: {ffmpeg_color}{ffmpeg_status}{Colors.RESET}{Colors.DIM}]{Colors.RESET}")
-        print(f"  {Colors.CYAN}4.{Colors.RESET} Install/check FFmpeg {Colors.DIM}[{ffmpeg_color}{ffmpeg_status}{Colors.RESET}{Colors.DIM}]{Colors.RESET}")
-        print(f"  {Colors.CYAN}5.{Colors.RESET} Uninstall dependencies")
-        print(f"  {Colors.CYAN}6.{Colors.RESET} Exit")
+        print(f"  {Colors.CYAN}3.{Colors.RESET} Download as MP3")
+        print(f"  {Colors.CYAN}4.{Colors.RESET} Uninstall dependencies")
+        print(f"  {Colors.CYAN}5.{Colors.RESET} Exit")
         print()
 
-        choice = input(f"{Colors.YELLOW}Enter choice (1-6): {Colors.RESET}").strip()
+        choice = input(f"{Colors.YELLOW}Enter choice (1-5): {Colors.RESET}").strip()
 
-        if choice in ('1', '2', '3', '4', '5', '6'):
+        if choice in ('1', '2', '3', '4', '5'):
             return choice
 
-        print(f"{Colors.RED}Invalid choice. Please enter 1-6.{Colors.RESET}\n")
+        print(f"{Colors.RED}Invalid choice. Please enter 1-5.{Colors.RESET}\n")
 
 
 def handle_validate(url_dict: dict[str, list[str]]) -> None:
@@ -629,14 +648,8 @@ def handle_download(url_dict: dict[str, list[str]], output_dir: Path) -> None:
     wait_for_enter()
 
 
-def handle_download_audio(url_dict: dict[str, list[str]], output_dir: Path) -> bool:
-    """Handle the download as MP3 menu option. Returns True if ffmpeg check passed."""
-    if not check_ffmpeg():
-        print(f"\n{Colors.RED}FFmpeg is required for MP3 conversion.{Colors.RESET}")
-        print(f"{Colors.YELLOW}Please use option 4 to install FFmpeg first.{Colors.RESET}")
-        wait_for_enter()
-        return False
-
+def handle_download_audio(url_dict: dict[str, list[str]], output_dir: Path) -> None:
+    """Handle the download as MP3 menu option."""
     success, failed = download_audio(url_dict, output_dir)
 
     print(f"{Colors.PURPLE}{'=' * 40}{Colors.RESET}")
@@ -644,33 +657,6 @@ def handle_download_audio(url_dict: dict[str, list[str]], output_dir: Path) -> b
     print(f"{Colors.RED}Failed:     {failed}{Colors.RESET}")
     print(f"{Colors.CYAN}Saved to:   {output_dir}{Colors.RESET}")
     wait_for_enter()
-    return True
-
-
-def handle_ffmpeg() -> bool:
-    """Handle the FFmpeg install/check menu option. Returns new ffmpeg status."""
-    if check_ffmpeg():
-        ffmpeg_path = get_ffmpeg_path()
-        print(f"\n{Colors.GREEN}FFmpeg is already installed:{Colors.RESET} {Colors.CYAN}{ffmpeg_path}{Colors.RESET}")
-
-        # Get version
-        try:
-            result = subprocess.run(
-                [ffmpeg_path, "-version"],
-                capture_output=True,
-                text=True
-            )
-            version_line = result.stdout.split('\n')[0] if result.stdout else "Unknown version"
-            print(f"{Colors.DIM}Version: {version_line}{Colors.RESET}")
-        except Exception:
-            pass
-
-        wait_for_enter()
-        return True
-    else:
-        success = install_ffmpeg()
-        wait_for_enter()
-        return success
 
 
 def main() -> None:
@@ -684,9 +670,6 @@ def main() -> None:
     url_file = script_dir / "urls.txt"
     video_dir = script_dir / "video"
     audio_dir = script_dir / "audio"
-
-    # Check ffmpeg status
-    ffmpeg_available = check_ffmpeg()
 
     if not url_file.exists():
         create_urls_file(url_file)
@@ -703,7 +686,7 @@ def main() -> None:
     folder_count = len([f for f in url_dict.keys() if f])
 
     while True:
-        choice = get_menu_choice(ffmpeg_available, total_urls, folder_count)
+        choice = get_menu_choice(total_urls, folder_count)
 
         if choice == "1":
             handle_validate(url_dict)
@@ -712,12 +695,8 @@ def main() -> None:
         elif choice == "3":
             handle_download_audio(url_dict, audio_dir)
         elif choice == "4":
-            ffmpeg_available = handle_ffmpeg()
-        elif choice == "5":
             uninstall_dependencies()
-            # Re-check ffmpeg status after potential uninstall
-            ffmpeg_available = check_ffmpeg()
-        elif choice == "6":
+        elif choice == "5":
             print(f"{Colors.PURPLE}Goodbye!{Colors.RESET}")
             break
 
