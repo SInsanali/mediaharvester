@@ -1,6 +1,6 @@
 #!/bin/bash
 # Media Harvester - macOS launcher
-# Double-click this file to run the downloader
+# Double-click this file. The app opens in your web browser.
 
 cd "$(dirname "$0")" || exit 1
 

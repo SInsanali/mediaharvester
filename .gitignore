@@ -24,7 +24,9 @@ CLAUDE.md
 # Environment
 .env
 .env.local
-urls.txt
+
+# Local downloads kept in the project folder
+video/
 
 # OS
 .DS_Store
@@ -32,3 +34,4 @@ Thumbs.db
 
 # Logs
 *.log
+

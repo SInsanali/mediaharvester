@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- macOS icon grid: 824px body inset 100px, soft shadow below -->
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3c552"/>
+      <stop offset="1" stop-color="#dc9f26"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".35"/>
+      <stop offset=".5" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity=".28"/>
+    </filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#body)" filter="url(#shadow)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#shine)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#000" stroke-opacity=".08" stroke-width="3"/>
+  <g fill="none" stroke="#17231c" stroke-width="76" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M512 262v330"/>
+    <path d="M370 452l142 142 142-142"/>
+    <path d="M300 640v46a62 62 0 0 0 62 62h300a62 62 0 0 0 62-62v-46"/>
+  </g>
+</svg>

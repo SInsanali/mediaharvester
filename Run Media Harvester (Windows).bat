@@ -1,7 +1,7 @@
 @echo off
 title Media Harvester
 REM Media Harvester - Windows launcher
-REM Double-click this file to run the downloader
+REM Double-click this file. The app opens in your web browser.
 
 cd /d "%~dp0"
 

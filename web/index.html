@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Media Harvester</title>
+  <meta name="mh-token" content="{{TOKEN}}">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="wordmark" href="/" aria-label="Media Harvester home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><use href="/static/icon.svg#mark"/></svg>
+      <span>Media Harvester</span>
+    </a>
+    <div class="topbar-actions">
+      <button class="save-to" id="saveTo" type="button" title="Change where downloads are saved">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span>Saving to <strong id="saveToPath">…</strong></span>
+      </button>
+      <button class="icon-btn" id="openSettings" type="button" aria-label="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="banner" id="ffmpegBanner" hidden>
+    <p><strong>One more thing to install.</strong> FFmpeg lets Media Harvester make MP3s and get the best video quality. It takes about a minute.</p>
+    <button class="btn btn-small" id="installFfmpeg" type="button">Install FFmpeg</button>
+  </div>
+
+  <main>
+    <section class="hopper" aria-labelledby="hopperTitle">
+      <h1 id="hopperTitle">Drop in a link.</h1>
+      <form class="hopper-form" id="linkForm" autocomplete="off">
+        <label class="visually-hidden" for="linkInput">Video or audio link</label>
+        <textarea id="linkInput" rows="1" spellcheck="false"
+          placeholder="Paste a link from YouTube, TikTok, Instagram, X, Vimeo…"></textarea>
+        <button class="btn btn-primary" id="checkBtn" type="submit">Check link</button>
+      </form>
+      <div class="hopper-foot">
+        <div class="segmented" role="radiogroup" aria-label="Save as">
+          <button type="button" role="radio" data-default-mode="video" aria-checked="true">Video</button>
+          <button type="button" role="radio" data-default-mode="audio" aria-checked="false">Audio (MP3)</button>
+        </div>
+        <button class="btn btn-small btn-quiet btn-add" id="newGroup" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          New group
+        </button>
+        <label class="target" id="targetWrap" hidden>
+          <span>Add new links to</span>
+          <select id="targetGroup"></select>
+        </label>
+        <p class="hint">Paste several links at once, or drag one onto this page. Works with over a thousand sites.</p>
+      </div>
+    </section>
+
+    <section class="panel" id="readyPanel" hidden aria-labelledby="readyTitle">
+      <div class="panel-head">
+        <h2 id="readyTitle">Ready to download</h2>
+        <button class="btn btn-small btn-primary" id="downloadAll" type="button" hidden>Download all</button>
+      </div>
+      <ul class="cards" id="readyList"></ul>
+      <div class="groups" id="groupList"></div>
+    </section>
+
+    <section class="panel" id="jobsPanel" hidden aria-labelledby="jobsTitle">
+      <div class="panel-head">
+        <h2 id="jobsTitle">Downloads</h2>
+        <div class="panel-actions">
+          <button class="btn btn-small btn-quiet" id="clearFinished" type="button" hidden>Clear finished</button>
+          <button class="btn btn-small btn-quiet" id="openFolder" type="button">Open folder</button>
+        </div>
+      </div>
+      <ul class="jobs" id="jobList"></ul>
+    </section>
+
+    <section class="empty" id="emptyState">
+      <ol class="steps">
+        <li><strong>Copy a link</strong>From your browser’s address bar, or the site’s Share button.</li>
+        <li><strong>Paste it above</strong>We’ll check it and show you what you’re about to save.</li>
+        <li><strong>Pick video or audio</strong>Press Download. Files go to your Downloads folder.</li>
+      </ol>
+    </section>
+  </main>
+
+  <dialog class="settings" id="settingsDialog" aria-labelledby="settingsTitle">
+    <form method="dialog" class="settings-inner">
+      <div class="settings-head">
+        <h2 id="settingsTitle">Settings</h2>
+        <button class="icon-btn" value="close" aria-label="Close settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+
+      <div class="setting">
+        <h3>Save downloads to</h3>
+        <div class="folder-row">
+          <input id="folderInput" type="text" spellcheck="false" aria-label="Download folder">
+          <button class="btn btn-small" id="chooseFolder" type="button">Choose…</button>
+        </div>
+        <div class="setting-actions">
+          <button class="btn btn-small btn-quiet" id="saveFolder" type="button">Save path</button>
+          <button class="btn btn-small btn-quiet" id="resetFolder" type="button">Use default</button>
+        </div>
+        <p class="setting-note" id="folderNote" role="status"></p>
+      </div>
+
+      <div class="setting">
+        <h3>Download engine</h3>
+        <p class="setting-note">Sites change how they deliver video from time to time. If links that used to work start failing, update the engine.</p>
+        <p class="setting-meta">yt-dlp <span id="ytdlpVersion">…</span> · FFmpeg <span id="ffmpegStatus">…</span></p>
+        <div class="setting-actions">
+          <button class="btn btn-small" id="updateEngine" type="button">Update engine</button>
+          <button class="btn btn-small btn-quiet" id="installFfmpeg2" type="button" hidden>Install FFmpeg</button>
+        </div>
+        <p class="setting-note" id="taskNote" role="status"></p>
+      </div>
+
+      <div class="setting">
+        <h3>Quit</h3>
+        <p class="setting-note">Stops Media Harvester. It also quits on its own a few minutes after you close this page.</p>
+        <div class="setting-actions">
+          <button class="btn btn-small btn-danger" id="quitApp" type="button">Quit Media Harvester</button>
+        </div>
+      </div>
+
+      <p class="settings-foot">Media Harvester {{VERSION}}. Everything runs on your computer.</p>
+    </form>
+  </dialog>
+
+  <div class="drop-veil" id="dropVeil" hidden><p>Drop the link to check it</p></div>
+  <div class="quit-screen" id="quitScreen" hidden>
+    <svg viewBox="0 0 32 32" aria-hidden="true"><use href="/static/icon.svg#mark"/></svg>
+    <h2>Media Harvester has quit.</h2>
+    <p>Your downloads are still in your Downloads folder. Open Media Harvester again whenever you need it. You can close this tab.</p>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
