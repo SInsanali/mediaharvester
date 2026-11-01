@@ -36,6 +36,10 @@
   <main>
     <section class="hopper" aria-labelledby="hopperTitle">
       <h1 id="hopperTitle">Drop in a link.</h1>
+      <p class="hint">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1.1 1.3 1.1 2.2h5c0-.9.5-1.7 1.1-2.2A6 6 0 0 0 12 3z"/></svg>
+        <span>Paste several links at once, or drag one onto this page. Works with over a thousand sites.</span>
+      </p>
       <form class="hopper-form" id="linkForm" autocomplete="off">
         <label class="visually-hidden" for="linkInput">Video or audio link</label>
         <textarea id="linkInput" rows="1" spellcheck="false"
@@ -55,7 +59,6 @@
           <span>Add new links to</span>
           <select id="targetGroup"></select>
         </label>
-        <p class="hint">Paste several links at once, or drag one onto this page. Works with over a thousand sites.</p>
       </div>
     </section>
 
@@ -108,6 +111,51 @@
           <button class="btn btn-small btn-quiet" id="resetFolder" type="button">Use default</button>
         </div>
         <p class="setting-note" id="folderNote" role="status"></p>
+      </div>
+
+      <div class="setting">
+        <h3>Download options</h3>
+
+        <div class="option">
+          <div>
+            <label class="option-label" for="optRetries">Retries if a download stops</label>
+            <p class="option-note">Tries again on its own and picks up where it stopped. Private or deleted videos aren’t retried.</p>
+          </div>
+          <div class="stepper">
+            <button type="button" data-step="optRetries" data-delta="-1" aria-label="Fewer retries">−</button>
+            <input id="optRetries" type="number" min="0" max="10" step="1" inputmode="numeric">
+            <button type="button" data-step="optRetries" data-delta="1" aria-label="More retries">+</button>
+          </div>
+        </div>
+
+        <div class="option">
+          <div>
+            <label class="option-label" for="optParallel">Downloads at the same time</label>
+            <p class="option-note">The rest wait their turn.</p>
+          </div>
+          <div class="stepper">
+            <button type="button" data-step="optParallel" data-delta="-1" aria-label="Fewer at once">−</button>
+            <input id="optParallel" type="number" min="1" max="4" step="1" inputmode="numeric">
+            <button type="button" data-step="optParallel" data-delta="1" aria-label="More at once">+</button>
+          </div>
+        </div>
+
+        <div class="option">
+          <div>
+            <label class="option-label" for="optRate">Speed limit</label>
+            <p class="option-note">Leaves room for streaming and video calls while you download.</p>
+          </div>
+          <select id="optRate">
+            <option value="0">No limit</option>
+            <option value="1">1 MB/s</option>
+            <option value="2">2 MB/s</option>
+            <option value="5">5 MB/s</option>
+            <option value="10">10 MB/s</option>
+            <option value="25">25 MB/s</option>
+          </select>
+        </div>
+
+        <p class="setting-note option-saved" id="optionsNote" role="status"></p>
       </div>
 
       <div class="setting">

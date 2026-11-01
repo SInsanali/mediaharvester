@@ -21,6 +21,8 @@
     quitApp: $("#quitApp"), quitScreen: $("#quitScreen"),
     newGroup: $("#newGroup"), groupList: $("#groupList"),
     targetWrap: $("#targetWrap"), targetGroup: $("#targetGroup"),
+    optRetries: $("#optRetries"), optParallel: $("#optParallel"), optRate: $("#optRate"),
+    optionsNote: $("#optionsNote"),
   };
 
   let server = null;          // latest /api/state
@@ -177,7 +179,7 @@
         mode: item.mode, height: item.height, folder: group ? group.name : info.title }));
     }
     return [{ url: info.url, title: info.title, thumbnail: info.thumbnail, mode: item.mode, height: item.height,
-      folder: group ? group.name : null }];
+      folder: group ? group.name : null, filename: item.filename }];
   }
 
   async function startDownload(itemsToStart) {
@@ -238,6 +240,60 @@
     return select;
   }
 
+  // ---------------------------------------------------------------- renaming
+
+  // Same rule as the server's safe_file_name(), so the preview matches the real file
+  const cleanName = (name) => name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "").replace(/^[\s.]+|[\s.]+$/g, "").slice(0, 150);
+
+  function savesAsText(item) {
+    const ext = item.mode === "audio" ? "mp3" : "mp4";
+    const stem = item.filename || `${cleanName(item.info.title)}${item.info.id ? ` [${item.info.id}]` : ""}`;
+    return `${stem}.${ext}`;
+  }
+
+  function renameField(item) {
+    const info = item.info;
+    const savesAs = h("p", { class: "saves-as" });
+    const showSavesAs = () => {
+      const parts = ["Saves as ", h("strong", { text: savesAsText(item) })];
+      if (item.filename) {
+        parts.push(h("button", { type: "button", text: "Use original name", onclick: () => {
+          item.filename = null;
+          input.value = info.title;
+          showSavesAs();
+        } }));
+      }
+      savesAs.replaceChildren(...parts);
+    };
+    const input = h("input", { type: "text", value: item.filename || info.title, title: "Click to rename",
+      "aria-label": "File name", spellcheck: "false", maxlength: "150", "data-focus-key": `name:${item.key}` });
+    input.addEventListener("input", () => {
+      const name = cleanName(input.value);
+      item.filename = name && name !== cleanName(info.title) ? name : null;
+      showSavesAs();
+    });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+    input.addEventListener("blur", () => { if (!cleanName(input.value)) input.value = info.title; });
+    const pencil = h("span", { "aria-hidden": "true" });
+    pencil.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>';
+    showSavesAs();
+    return h("div", {}, h("label", { class: "rename" }, input, pencil.firstChild), savesAs);
+  }
+
+  // Re-rendering replaces inputs; put the cursor back where it was so typing isn't interrupted
+  function keepFocus(render) {
+    const active = document.activeElement;
+    const key = active && active.dataset ? active.dataset.focusKey : null;
+    const selection = key ? [active.selectionStart, active.selectionEnd] : null;
+    render();
+    if (!key) return;
+    const again = document.querySelector(`[data-focus-key="${key}"]`);
+    if (again && again !== active) {
+      again.focus();
+      again.setSelectionRange(...selection);
+    }
+  }
+
   function groupControl(item) {
     if (!groups.length) return null;
     const select = h("select", { "aria-label": "Group",
@@ -285,9 +341,13 @@
       ? [`Playlist of ${count} ${count === 1 ? "video" : "videos"}`, info.uploader, siteName(info)]
       : [info.uploader, siteName(info)];
 
-    const body = h("div", { class: "card-body" },
-      h("p", { class: "card-title", text: info.title, title: info.title }),
-      h("p", { class: "card-meta", text: meta.filter(Boolean).join(", ") }));
+    const body = isList
+      ? h("div", { class: "card-body" },
+          h("p", { class: "card-title", text: info.title, title: info.title }),
+          h("p", { class: "card-meta", text: meta.filter(Boolean).join(", ") }))
+      : h("div", { class: "card-body" },
+          renameField(item),
+          h("p", { class: "card-meta", text: meta.filter(Boolean).join(", ") }));
 
     if (isList) {
       const list = h("ol", { class: "playlist-list" },
@@ -308,8 +368,10 @@
   }
 
   function renderReady() {
-    els.readyList.replaceChildren(...ready.filter((it) => !groupOf(it)).map(readyCard));
-    renderGroups();
+    keepFocus(() => {
+      els.readyList.replaceChildren(...ready.filter((it) => !groupOf(it)).map(readyCard));
+      renderGroups();
+    });
     const readyCount = ready.filter((it) => it.status === "ready").length;
     els.readyPanel.hidden = ready.length === 0 && groups.length === 0;
     els.downloadAll.hidden = readyCount < 2;
@@ -491,9 +553,71 @@
       ...groups.map((g) => h("option", { value: g.id, text: g.name, selected: g.id === targetGroup })));
   }
 
+  // ---------------------------------------------------------------- download options
+
+  const OPTION_FIELDS = { retries: "optRetries", parallel: "optParallel", rate_limit: "optRate" };
+  let optionsShown = false;
+
+  function showOptions(options) {
+    for (const [key, id] of Object.entries(OPTION_FIELDS)) {
+      const field = els[id];
+      if (document.activeElement === field) continue;
+      const value = String(options[key]);
+      if (field.tagName === "SELECT" && ![...field.options].some((o) => o.value === value)) {
+        field.append(h("option", { value, text: `${value} MB/s` }));
+      }
+      field.value = value;
+    }
+    syncSteppers();
+  }
+
+  function syncSteppers() {
+    document.querySelectorAll("[data-step]").forEach((btn) => {
+      const input = els[btn.dataset.step];
+      const value = Number(input.value);
+      btn.disabled = Number(btn.dataset.delta) < 0 ? value <= Number(input.min) : value >= Number(input.max);
+    });
+  }
+
+  let optionsTimer = null;
+  async function saveOptions() {
+    const clamp = (input) => Math.min(Math.max(Math.round(Number(input.value) || 0), Number(input.min)), Number(input.max));
+    els.optRetries.value = clamp(els.optRetries);
+    els.optParallel.value = clamp(els.optParallel);
+    syncSteppers();
+    const options = { retries: Number(els.optRetries.value), parallel: Number(els.optParallel.value),
+      rate_limit: Number(els.optRate.value) };
+    try {
+      const res = await api("/api/settings", { options });
+      if (server) server.settings = res.settings;
+      els.optionsNote.textContent = "Saved";
+      clearTimeout(optionsTimer);
+      optionsTimer = setTimeout(() => { els.optionsNote.textContent = ""; }, 2000);
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  document.querySelectorAll("[data-step]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const input = els[btn.dataset.step];
+      input.value = Number(input.value) + Number(btn.dataset.delta);
+      saveOptions();
+    });
+  });
+  for (const id of Object.values(OPTION_FIELDS)) {
+    els[id].addEventListener("change", saveOptions);
+    // Enter would otherwise submit the dialog's form and close it
+    els[id].addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); els[id].blur(); } });
+  }
+
   // ---------------------------------------------------------------- server state
 
   function renderState() {
+    if (!optionsShown && server.settings.options) {
+      showOptions(server.settings.options);
+      optionsShown = true;
+    }
     els.saveToPath.textContent = server.settings.download_dir_display;
     els.saveTo.title = `Downloads are saved to ${server.settings.download_dir}. Click to change.`;
     els.banner.hidden = server.ffmpeg;

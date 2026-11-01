@@ -33,6 +33,8 @@ Files are saved to **Downloads → Media Harvester**. When a download finishes, 
 - **Groups**: click **+ New group** and give it a name. Links you paste next go into that group (change this with **Add new links to**), or move any link in or out with its **Group** menu. When you download, the group's files are saved in a folder with the group's name, inside your downloads folder.
 - **Playlists**: paste a playlist link to download every video in it. They're saved in a folder named after the playlist, or in the group's folder if the playlist is in a group.
 - **Drag and drop**: drag a link from another browser tab onto the page.
+- **Rename before downloading**: click a video's title on its card and type a new name. The line under it shows the exact file name it will be saved as.
+- **Download options** (in **Settings**, the gear icon): how many times to retry a download that stops, how many downloads run at once, and an optional speed limit. Changes save automatically.
 - **Change the save folder**: click **Saving to…** at the top of the page.
 
 ## Mac app

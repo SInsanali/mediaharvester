@@ -5,6 +5,7 @@ Double-click to run. Opens a page in your web browser where you can paste a
 link, check it, and download the video or audio to your computer.
 """
 
+import glob
 import json
 import os
 import platform
@@ -29,7 +30,8 @@ from urllib.parse import urlparse
 VERSION = "1.0.0"
 APP_NAME = "Media Harvester"
 DEFAULT_PORT = 8765
-MAX_PARALLEL_DOWNLOADS = 2
+MAX_PARALLEL_DOWNLOADS = 4  # Upper limit; the "Downloads at the same time" option picks 1-4
+RETRY_WAIT_SECONDS = 5
 MAX_PLAYLIST_ITEMS = 500
 IDLE_QUIT_SECONDS = 10 * 60  # Mac app only: quit once no page has checked in for this long
 
@@ -193,28 +195,60 @@ def default_download_dir() -> Path:
     return base / APP_NAME
 
 
+# Download options: (default, lowest, highest). rate_limit is in MB/s, 0 means no limit.
+OPTION_LIMITS: dict[str, tuple[float, float, float]] = {
+    "retries": (3, 0, 10),
+    "parallel": (2, 1, MAX_PARALLEL_DOWNLOADS),
+    "rate_limit": (0, 0, 100),
+}
+
+
+def clean_options(raw: Any, base: dict[str, float]) -> dict[str, float]:
+    """Merge user-supplied options into base, clamped to their limits."""
+    options = dict(base)
+    if isinstance(raw, dict):
+        for key, (_, low, high) in OPTION_LIMITS.items():
+            value = raw.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                value = min(max(value, low), high)
+                options[key] = value if key == "rate_limit" else int(value)
+    return options
+
+
 class Settings:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.download_dir = default_download_dir()
+        self.options = {key: limits[0] for key, limits in OPTION_LIMITS.items()}
         try:
             data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
             if data.get("download_dir"):
                 self.download_dir = Path(data["download_dir"]).expanduser()
-        except (OSError, ValueError):
+            self.options = clean_options(data.get("options"), self.options)
+        except (OSError, ValueError, AttributeError):
+            pass
+
+    def _save(self) -> None:
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            SETTINGS_FILE.write_text(json.dumps({"download_dir": str(self.download_dir), "options": self.options},
+                                                indent=2), encoding="utf-8")
+        except OSError:
             pass
 
     def set_download_dir(self, path: Path) -> None:
         with self.lock:
             self.download_dir = path
-            try:
-                DATA_DIR.mkdir(parents=True, exist_ok=True)
-                SETTINGS_FILE.write_text(json.dumps({"download_dir": str(path)}, indent=2), encoding="utf-8")
-            except OSError:
-                pass
+            self._save()
+
+    def set_options(self, raw: Any) -> None:
+        with self.lock:
+            self.options = clean_options(raw, self.options)
+            self._save()
 
     def to_dict(self) -> dict[str, Any]:
-        return {"download_dir": str(self.download_dir), "download_dir_display": pretty_path(self.download_dir)}
+        return {"download_dir": str(self.download_dir), "download_dir_display": pretty_path(self.download_dir),
+                "options": self.options}
 
 
 def pretty_path(path: Path) -> str:
@@ -247,6 +281,15 @@ BASE_YDL_OPTS: dict[str, Any] = {
 }
 
 
+def is_permanent(err: Exception) -> bool:
+    """Errors that trying again won't fix, so automatic retries skip them."""
+    low = str(err).lower()
+    return any(s in low for s in (
+        "unsupported url", "private", "age-restricted", "age restricted", "confirm your age", "sign in", "log in", "login", "cookies", "not available",
+        "unavailable", "has been removed", "http error 404", "drm", "ffmpeg is needed",
+    ))
+
+
 def friendly_error(err: Exception) -> str:
     """Turn a yt-dlp error into something a person can act on."""
     msg = re.sub(r"\x1b\[[0-9;]*m", "", str(err))
@@ -268,7 +311,8 @@ def friendly_error(err: Exception) -> str:
         return "This video is unavailable. It may have been deleted."
     if "ffmpeg" in low:
         return "FFmpeg is needed for this. Install it from the banner at the top of the page."
-    if "urlopen error" in low or "getaddrinfo" in low or "timed out" in low or "connection" in low:
+    if any(k in low for k in ("urlopen error", "getaddrinfo", "timed out", "connection", "transporterror",
+                              "nodename nor servname", "name or service not known", "name resolution")):
         return "Couldn't reach the site. Check your internet connection and try again."
     if "drm" in low:
         return "This video is DRM-protected and can't be downloaded."
@@ -332,6 +376,7 @@ def inspect_url(url: str) -> dict[str, Any]:
 
     return {
         "kind": "video",
+        "id": info.get("id"),
         "url": info.get("webpage_url") or url,
         "title": info.get("title") or "Untitled",
         "uploader": info.get("uploader") or info.get("channel") or info.get("uploader_id"),
@@ -362,6 +407,23 @@ def safe_folder_name(name: str) -> str:
     return cleaned[:80] or "Playlist"
 
 
+def safe_file_name(name: str) -> str:
+    """A name chosen by the person, made safe to use as a file name on any system."""
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", name).strip(" .")
+    return cleaned[:150]
+
+
+def unique_stem(folder: Path, stem: str) -> str:
+    """Add " (2)", " (3)"… so a renamed download never lands on an existing file."""
+    def taken(candidate: str) -> bool:
+        return any(f.stem == candidate and f.suffix not in (".part", ".ytdl")
+                   for f in folder.glob(glob.escape(candidate) + ".*"))
+    n, candidate = 2, stem
+    while taken(candidate):
+        candidate, n = f"{stem} ({n})", n + 1
+    return candidate
+
+
 # ---------------------------------------------------------------------------
 # Download jobs
 # ---------------------------------------------------------------------------
@@ -372,8 +434,9 @@ class Cancelled(Exception):
 
 class Job:
     def __init__(self, url: str, mode: str, height: Optional[int], title: str,
-                 thumbnail: Optional[str], folder: Optional[str]) -> None:
+                 thumbnail: Optional[str], folder: Optional[str], filename: Optional[str] = None) -> None:
         self.id = uuid.uuid4().hex[:12]
+        self.filename = filename  # A name the person chose, without extension; None keeps the video's title
         self.url = url
         self.mode = mode  # "video" or "audio"
         self.height = height
@@ -391,7 +454,7 @@ class Job:
         self.created = time.time()
         self.cancel_requested = False
         self.partial_files: set[str] = set()
-
+        self.final_stem: Optional[str] = None  # The chosen name made unique, fixed once so retries resume
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id, "url": self.url, "mode": self.mode, "height": self.height,
@@ -409,6 +472,9 @@ class JobManager:
         self.jobs: dict[str, Job] = {}
         self.lock = threading.Lock()
         self.pool = ThreadPoolExecutor(max_workers=MAX_PARALLEL_DOWNLOADS)
+        # The pool has room for the maximum; this limits how many actually run at once
+        self.slots = threading.Condition()
+        self.running = 0
 
     def add(self, **kwargs: Any) -> Job:
         job = Job(**kwargs)
@@ -438,7 +504,7 @@ class JobManager:
             return None
         self.remove(job_id)
         return self.add(url=job.url, mode=job.mode, height=job.height, title=job.title,
-                        thumbnail=job.thumbnail, folder=job.folder)
+                        thumbnail=job.thumbnail, folder=job.folder, filename=job.filename)
 
     def remove(self, job_id: str) -> None:
         with self.lock:
@@ -464,18 +530,49 @@ class JobManager:
 
     # -- worker ---------------------------------------------------------
 
+    def options_changed(self) -> None:
+        with self.slots:
+            self.slots.notify_all()  # More downloads may start now
+
     def _run(self, job: Job) -> None:
-        if job.cancel_requested:
-            return
+        # Wait for a free slot under the "Downloads at the same time" option
+        with self.slots:
+            while self.running >= int(self.settings.options["parallel"]) and not job.cancel_requested:
+                self.slots.wait(timeout=1)
+            if job.cancel_requested:
+                return
+            self.running += 1
         try:
-            self._download(job)
-        except Exception as e:
-            if isinstance(e, Cancelled) or job.cancel_requested:
-                job.status, job.stage = "cancelled", "Cancelled"
-                job.speed = job.eta = None
-                self._remove_partials(job)
-            else:
-                job.status, job.stage, job.error = "error", "Failed", friendly_error(e)
+            self._run_with_retries(job)
+        finally:
+            with self.slots:
+                self.running -= 1
+                self.slots.notify_all()
+
+    def _run_with_retries(self, job: Job) -> None:
+        attempt = 0
+        while True:
+            try:
+                self._download(job)
+                return
+            except Exception as e:
+                if isinstance(e, Cancelled) or job.cancel_requested:
+                    job.status, job.stage = "cancelled", "Cancelled"
+                    job.speed = job.eta = None
+                    self._remove_partials(job)
+                    return
+                retries = int(self.settings.options["retries"])
+                if attempt >= retries or is_permanent(e):
+                    job.status, job.stage, job.error = "error", "Failed", friendly_error(e)
+                    return
+                # The partial file is kept, so the next try picks up where this one stopped
+                attempt += 1
+                job.status, job.speed, job.eta = "downloading", None, None
+                job.stage = f"Stopped. Trying again ({attempt} of {retries})"
+                for _ in range(RETRY_WAIT_SECONDS * 10):
+                    if job.cancel_requested:
+                        break
+                    time.sleep(0.1)
 
     @staticmethod
     def _remove_partials(job: Job) -> None:
@@ -528,13 +625,24 @@ class JobManager:
                 job.stage = {"Merger": "Joining video and audio",
                              "ExtractAudio": "Converting to MP3"}.get(name, "Finishing up")
 
+        if job.filename:
+            if job.final_stem is None:
+                job.final_stem = unique_stem(out_dir, job.filename)
+            name_template = job.final_stem.replace("%", "%%") + ".%(ext)s"  # % is special in yt-dlp templates
+        else:
+            name_template = "%(title).150B [%(id)s].%(ext)s"
+        options = self.settings.options
         opts: dict[str, Any] = {
             **BASE_YDL_OPTS,
-            "outtmpl": str(out_dir / "%(title).150B [%(id)s].%(ext)s"),
+            "outtmpl": str(out_dir / name_template),
+            "retries": int(options["retries"]),
+            "fragment_retries": int(options["retries"]),
             "windowsfilenames": True,
             "progress_hooks": [on_progress],
             "postprocessor_hooks": [on_postprocess],
         }
+        if options["rate_limit"]:
+            opts["ratelimit"] = int(options["rate_limit"] * 1024 * 1024)
         if ffmpeg:
             opts["ffmpeg_location"] = str(Path(ffmpeg).parent)
 
@@ -863,10 +971,12 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 height = item.get("height")
                 height = int(height) if isinstance(height, (int, float)) and height > 0 else None
                 folder = item.get("folder")
+                filename = safe_file_name(str(item.get("filename") or "")) or None
                 job = app.jobs.add(url=url, mode=mode, height=height,
-                                   title=str(item.get("title") or url)[:300],
+                                   title=(filename or str(item.get("title") or url))[:300],
                                    thumbnail=item.get("thumbnail"),
-                                   folder=str(folder) if folder else None)
+                                   folder=str(folder) if folder else None,
+                                   filename=filename)
                 created.append(job.id)
             self.send_json({"ids": created})
 
@@ -927,6 +1037,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 app.settings.set_download_dir(path)
             elif data.get("reset"):
                 app.settings.set_download_dir(default_download_dir())
+            if "options" in data:
+                app.settings.set_options(data["options"])
+                app.jobs.options_changed()
             self.send_json({"settings": app.settings.to_dict()})
 
         def api_install_ffmpeg(self, data: dict[str, Any]) -> None:
